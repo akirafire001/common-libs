@@ -18,6 +18,8 @@ pip install git+https://github.com/yourorg/common-libs.git@v0.1.0
 
 ### 認証 (`common.auth`)
 
+#### JWT（既存機能）
+
 ```python
 from common.auth import create_token, require_auth
 from flask import Flask, g, jsonify
@@ -34,7 +36,81 @@ def profile():
     return jsonify({"user_id": g.user_id})
 ```
 
-環境変数 `JWT_SECRET_KEY` にシークレットキーを設定してください。
+#### メール認証（ユーザーモデル + パスワード）
+
+各プロジェクトで `BaseUser` を継承してユーザーモデルを定義し、プロジェクト固有のカラムを追加できます。
+
+```python
+# models/user.py（各プロジェクト側）
+from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import String
+from common.auth import BaseUser
+
+class User(BaseUser):
+    __tablename__ = "users"
+    nickname: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    plan: Mapped[str] = mapped_column(String(32), default="free")
+```
+
+```python
+# DBセットアップ（各プロジェクト側）
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+from common.auth import BaseUser, hash_password, verify_password, create_token
+
+engine = create_engine("postgresql://user:pass@localhost/mydb")
+BaseUser.metadata.create_all(engine)  # usersテーブルを作成
+
+# ユーザー登録
+with Session(engine) as session:
+    user = User(email="user@example.com", password_hash=hash_password("secret"))
+    session.add(user)
+    session.commit()
+
+# ログイン
+with Session(engine) as session:
+    user = session.query(User).filter_by(email="user@example.com").first()
+    if user and verify_password("secret", user.password_hash):
+        token = create_token(user.id)  # JWTを発行
+```
+
+#### Google認証
+
+```python
+# Flask側のコールバック実装例
+from flask import Flask, redirect, request, jsonify, session
+from sqlalchemy.orm import Session
+from common.auth import GoogleOAuth, create_token
+
+app = Flask(__name__)
+google = GoogleOAuth()  # 環境変数 GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET を使用
+
+REDIRECT_URI = "https://myapp.example.com/auth/google/callback"
+
+@app.route("/auth/google")
+def google_login():
+    # Googleの認証ページにリダイレクト
+    return redirect(google.get_auth_url(REDIRECT_URI))
+
+@app.route("/auth/google/callback")
+def google_callback():
+    code = request.args.get("code")
+    user_info = google.exchange_code(code, REDIRECT_URI)
+
+    # DBでユーザーを検索、なければ新規作成
+    with Session(engine) as db:
+        user = db.query(User).filter_by(google_id=user_info.google_id).first()
+        if not user:
+            user = User(email=user_info.email, google_id=user_info.google_id)
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+
+    token = create_token(user.id)
+    return jsonify({"token": token})
+```
+
+環境変数 `JWT_SECRET_KEY` / `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` を設定してください。
 
 ---
 
@@ -117,6 +193,8 @@ mailer.send(
 | 変数名 | 説明 | デフォルト |
 |---|---|---|
 | `JWT_SECRET_KEY` | JWT署名用シークレットキー | `changeme-in-production` |
+| `GOOGLE_CLIENT_ID` | Google OAuthクライアントID | （必須） |
+| `GOOGLE_CLIENT_SECRET` | Google OAuthクライアントシークレット | （必須） |
 | `STRIPE_SECRET_KEY` | Stripe APIシークレットキー | （空） |
 
 本番環境では必ず `.env` ファイルまたはシークレットマネージャーで設定してください。
