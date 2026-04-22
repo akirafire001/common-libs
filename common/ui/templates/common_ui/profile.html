@@ -1,0 +1,112 @@
+{% extends "common_ui/base.html" %}
+
+{% block title %}プロフィール{% endblock %}
+
+{% block content %}
+<div class="profile-card">
+  <h1 class="profile-title">プロフィール</h1>
+
+  <div id="error-msg" class="message message-error" hidden></div>
+  <div id="success-msg" class="message message-success" hidden></div>
+
+  <div class="profile-info" id="profile-info">
+    <div class="profile-info-row">
+      <span class="profile-info-label">メール</span>
+      <span class="profile-info-value" id="info-email">読み込み中…</span>
+    </div>
+    <div class="profile-info-row">
+      <span class="profile-info-label">表示名</span>
+      <span class="profile-info-value" id="info-display-name">—</span>
+    </div>
+    <div class="profile-info-row">
+      <span class="profile-info-label">Google連携</span>
+      <span class="profile-info-value" id="info-google">—</span>
+    </div>
+    <div class="profile-info-row">
+      <span class="profile-info-label">登録日時</span>
+      <span class="profile-info-value" id="info-created-at">—</span>
+    </div>
+  </div>
+
+  <form id="profile-form" class="profile-form" novalidate>
+    <div class="form-group">
+      <label class="form-label" for="display_name">表示名を変更する</label>
+      <input class="form-input" type="text" id="display_name" name="display_name"
+             placeholder="新しい表示名">
+    </div>
+    <div class="profile-actions">
+      <button class="btn btn-primary" type="submit">保存する</button>
+    </div>
+  </form>
+
+  <button class="btn btn-logout" id="logout-btn" type="button">ログアウト</button>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  const token = localStorage.getItem('token');
+  if (!token) {
+    window.location.href = '{{ url_for("common_ui.login_page") }}';
+  }
+
+  const errorEl   = document.getElementById('error-msg');
+  const successEl = document.getElementById('success-msg');
+
+  // プロフィール情報の取得
+  async function loadProfile() {
+    const res = await fetch('/profile/me', {
+      headers: { 'Authorization': 'Bearer ' + token },
+    });
+
+    if (res.status === 401) {
+      localStorage.removeItem('token');
+      window.location.href = '{{ url_for("common_ui.login_page") }}';
+      return;
+    }
+
+    const data = await res.json();
+    document.getElementById('info-email').textContent        = data.email;
+    document.getElementById('info-display-name').textContent = data.display_name || '—';
+    document.getElementById('info-google').textContent       = data.has_google ? '連携済み' : '未連携';
+    document.getElementById('info-created-at').textContent   =
+      new Date(data.created_at).toLocaleString('ja-JP');
+    document.getElementById('display_name').value = data.display_name || '';
+  }
+
+  loadProfile();
+
+  // 表示名の更新
+  document.getElementById('profile-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorEl.hidden   = true;
+    successEl.hidden = true;
+
+    const res = await fetch('/profile/me', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token,
+      },
+      body: JSON.stringify({ display_name: e.target.display_name.value }),
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      errorEl.textContent = data.error || '更新に失敗しました';
+      errorEl.hidden = false;
+      return;
+    }
+
+    successEl.textContent = '表示名を更新しました';
+    successEl.hidden = false;
+    loadProfile();
+  });
+
+  // ログアウト
+  document.getElementById('logout-btn').addEventListener('click', () => {
+    localStorage.removeItem('token');
+    window.location.href = '{{ url_for("common_ui.login_page") }}';
+  });
+</script>
+{% endblock %}

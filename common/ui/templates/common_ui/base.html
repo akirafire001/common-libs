@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}App{% endblock %}</title>
+  <link rel="stylesheet"
+        href="{{ url_for('common_ui.static', filename='common_ui/theme.css') }}">
+  {% block extra_css %}{% endblock %}
+</head>
+<body>
+  <header class="app-header">
+    {% block header %}
+    <span class="app-logo">App</span>
+    <nav class="app-nav">
+      <a href="{{ url_for('common_ui.login_page') }}" class="nav-link">ログイン</a>
+      <a href="{{ url_for('common_ui.register_page') }}" class="nav-link">新規登録</a>
+    </nav>
+    {% endblock %}
+  </header>
+
+  <main class="app-main">
+    {% block content %}{% endblock %}
+  </main>
+
+  {% block footer %}{% endblock %}
+
+  {% block extra_js %}{% endblock %}
+</body>
+</html>
