@@ -83,7 +83,15 @@ def has_plan(minimum_plan: str) -> bool:
     テンプレートや条件分岐で使う場合:
         if has_plan("pro"):
             ...
+
+    存在しないプラン名を渡すと ValueError を送出する。
+    PLAN_LEVELS.get(..., 0) のデフォルトに頼ると、タイポのプラン名が
+    required_level=0 になり全ユーザーに True を返すため明示的に検証する。
     """
-    required_level = PLAN_LEVELS.get(minimum_plan, 0)
+    if minimum_plan not in PLAN_LEVELS:
+        raise ValueError(
+            f"Unknown plan: '{minimum_plan}'. Valid plans: {list(PLAN_LEVELS)}"
+        )
+    required_level = PLAN_LEVELS[minimum_plan]
     current_level = PLAN_LEVELS.get(_plan_loader(), 0)
     return current_level >= required_level

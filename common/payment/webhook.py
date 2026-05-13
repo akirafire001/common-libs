@@ -70,8 +70,21 @@ class StripeWebhookBlueprint:
         except stripe.error.SignatureVerificationError:
             return jsonify({"error": "Invalid signature"}), 400
 
+        import logging
+        _log = logging.getLogger(__name__)
+
         handlers = self._handlers.get(event["type"], [])
         for handler in handlers:
-            handler(event["data"]["object"])
+            try:
+                handler(event["data"]["object"])
+            except Exception:
+                # ハンドラの例外を 500 に伝播させない。
+                # 500 を返すと Stripe がリトライし、副作用が二重実行される危険がある。
+                # エラーはログに記録し、Stripe には受信確認（200）を返す。
+                _log.exception(
+                    "Webhook handler %r raised an exception for event type %r",
+                    handler.__name__,
+                    event["type"],
+                )
 
         return jsonify({"received": True}), 200

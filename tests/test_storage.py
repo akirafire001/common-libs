@@ -212,6 +212,55 @@ class TestS3Storage:
         assert "permission denied" in result.error
 
 
+class TestS3KeyValidation:
+    """S3 キーインジェクション対策を検証する。"""
+
+    @pytest.fixture
+    def s3(self):
+        mock_module = MagicMock()
+        mock_client = MagicMock()
+        mock_module.client.return_value = mock_client
+        with patch.dict(sys.modules, {"boto3": mock_module}):
+            from common.storage.backends import S3Storage
+            storage = S3Storage(bucket="test-bucket", region="ap-northeast-1")
+        storage._client = mock_client
+        return storage
+
+    @pytest.mark.parametrize("bad_key", [
+        "../secret.txt",
+        "a/../../etc/passwd",
+        "/absolute/path.txt",
+        "null\x00byte.txt",
+        "",
+    ])
+    def test_upload_invalid_key_rejected(self, s3, bad_key):
+        result = s3.upload("/tmp/file.txt", bad_key)
+        assert result.success is False
+        assert "Invalid S3 key" in result.error
+
+    @pytest.mark.parametrize("bad_key", [
+        "../secret.txt",
+        "../../admin/config",
+        "/root/.ssh/authorized_keys",
+    ])
+    def test_download_invalid_key_rejected(self, s3, bad_key):
+        result = s3.download(bad_key, "/tmp/out.txt")
+        assert result.success is False
+
+    def test_valid_nested_key_allowed(self, s3):
+        s3._client.upload_file.return_value = None
+        result = s3.upload("/tmp/file.txt", "uploads/2024/01/file.txt")
+        assert result.success is True
+
+    def test_delete_invalid_key_rejected(self, s3):
+        result = s3.delete("../important.txt")
+        assert result.success is False
+
+    def test_get_url_invalid_key_rejected(self, s3):
+        result = s3.get_url("../../admin.json")
+        assert result.success is False
+
+
 class TestCreateStorageFactory:
     def test_default_returns_local_storage(self, tmp_path, monkeypatch):
         monkeypatch.setenv("STORAGE_BACKEND", "local")

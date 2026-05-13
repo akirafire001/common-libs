@@ -64,6 +64,8 @@ class LocalStorage(StorageBackend):
         src = self._safe_resolve(source)
         if src is None:
             return StorageResult(success=False, error=f"Invalid path: '{source}'")
+        # local_path は呼び出し元が信頼できるパスを渡す責任を持つ。
+        # 未検証のユーザー入力をそのまま渡してはならない。
         try:
             shutil.copy2(src, local_path)
             return StorageResult(success=True, path=local_path)
@@ -96,7 +98,30 @@ class S3Storage(StorageBackend):
         self._region = region or os.environ.get("AWS_REGION", "ap-northeast-1")
         self._client = boto3.client("s3", region_name=self._region)
 
+    @staticmethod
+    def _validate_key(key: str) -> bool:
+        """S3 キーの基本安全チェック。
+
+        以下を拒否する:
+        - ディレクトリトラバーサル成分 (..)
+        - ヌルバイト
+        - 先頭スラッシュ（絶対パス的な指定）
+        これにより、他ツールがキーをパスとして解釈した際のトラバーサルを防ぐ。
+        """
+        if not key:
+            return False
+        if "\x00" in key:
+            return False
+        if key.startswith("/"):
+            return False
+        parts = key.replace("\\", "/").split("/")
+        if ".." in parts:
+            return False
+        return True
+
     def upload(self, local_path: str, destination: str) -> StorageResult:
+        if not self._validate_key(destination):
+            return StorageResult(success=False, error=f"Invalid S3 key: '{destination}'")
         try:
             self._client.upload_file(local_path, self._bucket, destination)
             return StorageResult(success=True, path=destination)
@@ -104,6 +129,8 @@ class S3Storage(StorageBackend):
             return StorageResult(success=False, error=str(e))
 
     def download(self, source: str, local_path: str) -> StorageResult:
+        if not self._validate_key(source):
+            return StorageResult(success=False, error=f"Invalid S3 key: '{source}'")
         try:
             self._client.download_file(self._bucket, source, local_path)
             return StorageResult(success=True, path=local_path)
@@ -111,6 +138,8 @@ class S3Storage(StorageBackend):
             return StorageResult(success=False, error=str(e))
 
     def delete(self, path: str) -> StorageResult:
+        if not self._validate_key(path):
+            return StorageResult(success=False, error=f"Invalid S3 key: '{path}'")
         try:
             self._client.delete_object(Bucket=self._bucket, Key=path)
             return StorageResult(success=True, path=path)
@@ -118,6 +147,8 @@ class S3Storage(StorageBackend):
             return StorageResult(success=False, error=str(e))
 
     def get_url(self, path: str, expires_in: int = 3600) -> StorageResult:
+        if not self._validate_key(path):
+            return StorageResult(success=False, error=f"Invalid S3 key: '{path}'")
         try:
             url = self._client.generate_presigned_url(
                 "get_object",

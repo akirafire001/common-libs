@@ -162,3 +162,46 @@ class TestStripeWebhookBlueprint:
 
         assert resp.status_code == 500
         assert resp.get_json()["error"] == "Webhook not configured"
+
+    def test_handler_exception_does_not_return_500(self, monkeypatch):
+        """ハンドラが例外を投げても 200 を返す。
+        500 を返すと Stripe がリトライし、副作用（DB書き込み等）が二重実行される。
+        """
+        monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
+        webhook = StripeWebhookBlueprint()
+
+        @webhook.on("invoice.payment_failed")
+        def buggy_handler(data):
+            raise RuntimeError("DB connection lost")
+
+        app = _make_app(webhook)
+        mock_event = {"type": "invoice.payment_failed", "data": {"object": {}}}
+
+        with app.test_client() as c:
+            with patch("stripe.Webhook.construct_event", return_value=mock_event):
+                resp = _post(c)
+
+        assert resp.status_code == 200
+
+    def test_handler_exception_subsequent_handlers_still_called(self, monkeypatch):
+        """1つのハンドラが失敗しても後続ハンドラは呼ばれる。"""
+        monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "whsec_test")
+        webhook = StripeWebhookBlueprint()
+        called = []
+
+        @webhook.on("test.event")
+        def failing_handler(data):
+            raise ValueError("fail")
+
+        @webhook.on("test.event")
+        def good_handler(data):
+            called.append("good")
+
+        app = _make_app(webhook)
+        mock_event = {"type": "test.event", "data": {"object": {}}}
+
+        with app.test_client() as c:
+            with patch("stripe.Webhook.construct_event", return_value=mock_event):
+                _post(c)
+
+        assert called == ["good"]

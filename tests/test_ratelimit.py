@@ -155,6 +155,63 @@ class TestRateLimiterByPlan:
         assert resp.headers.get("X-RateLimit-Limit") == "20"
 
 
+class TestRateLimiterKeyUniqueness:
+    def test_each_request_uses_unique_redis_member(self):
+        """同一秒内の複数リクエストで ZADD のメンバーが重複してはいけない。
+        重複するとカウントが抜けレート制限が機能しなくなる。
+        """
+        added_members: list[str] = []
+
+        pipeline = MagicMock()
+        pipeline.execute.return_value = [None, None, 1, None]
+
+        def capture_zadd(key, mapping):
+            added_members.extend(mapping.keys())
+
+        pipeline.zadd.side_effect = capture_zadd
+
+        mock_redis = MagicMock()
+        mock_redis.pipeline.return_value = pipeline
+
+        limiter = _make_limiter(mock_redis)
+        app = _make_app(limiter, {"requests": 100, "window": 60})
+
+        with app.test_client() as c:
+            c.get("/search")
+            c.get("/search")
+
+        # 2リクエストで 2 つの異なるメンバーが登録されていることを確認
+        assert len(added_members) == 2
+        assert added_members[0] != added_members[1]
+
+    def test_redis_key_uses_qualname_not_just_name(self):
+        """レート制限キーは f.__qualname__ と __module__ を含む。
+        __name__ だけだと別モジュールの同名関数とキーが衝突する。
+        """
+        captured_keys: list[str] = []
+
+        pipeline = MagicMock()
+        pipeline.execute.return_value = [None, None, 1, None]
+
+        def capture_zremrange(key, *args):
+            captured_keys.append(key)
+
+        pipeline.zremrangebyscore.side_effect = capture_zremrange
+
+        mock_redis = MagicMock()
+        mock_redis.pipeline.return_value = pipeline
+
+        limiter = _make_limiter(mock_redis)
+        app = _make_app(limiter, {"requests": 10, "window": 60})
+
+        with app.test_client() as c:
+            c.get("/search")
+
+        assert len(captured_keys) == 1
+        # キーにモジュール名と qualname が含まれていること
+        assert "." in captured_keys[0]  # module.qualname 形式
+
+
 class TestRateLimiterInit:
     def test_no_redis_when_unreachable(self, monkeypatch):
         """接続できない Redis URL を渡したとき _redis は None になる。"""

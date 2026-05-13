@@ -72,4 +72,6 @@ def init_error_handlers(app: Flask) -> None:
 
     @app.errorhandler(500)
     def handle_500(e):
+        # スタックトレースをログに残す（外部レスポンスには含めない）
+        app.logger.error("Internal server error", exc_info=e)
         return jsonify({"error": "internal_error", "message": "An unexpected error occurred."}), 500

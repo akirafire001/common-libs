@@ -70,6 +70,24 @@ class TestRequirePlanUnknownPlan:
                 pass
 
 
+class TestHasPlanUnknownPlan:
+    def test_unknown_plan_raises_value_error(self, app):
+        """has_plan() にタイポした名前を渡すと ValueError を送出する。
+        PLAN_LEVELS.get(..., 0) で required_level=0 になり全員に True を返すバグを防ぐ。
+        """
+        set_plan_loader(lambda: "free")
+        with app.test_request_context("/"):
+            with pytest.raises(ValueError, match="Unknown plan"):
+                has_plan("enterprise_plus")
+
+    def test_typo_does_not_grant_access(self, app):
+        """タイポしたプランで has_plan() を呼んでも例外が出てアクセス許可されない。"""
+        set_plan_loader(lambda: "free")
+        with app.test_request_context("/"):
+            with pytest.raises(ValueError):
+                has_plan("Pro")  # 大文字ミス → True を返してはいけない
+
+
 class TestRequirePlan:
     def test_exact_plan_allowed(self, app):
         set_plan_loader(lambda: "pro")
