@@ -9,6 +9,7 @@ description = "共通ライブラリ集（認証・ログ・決済・通知）"
 requires-python = ">=3.11"
 dependencies = [
     "flask>=3.0",
+    "flask-login>=0.6",
     "pyjwt>=2.8",
     "stripe>=7.0",
     "sqlalchemy>=2.0",
